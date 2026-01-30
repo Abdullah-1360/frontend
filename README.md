@@ -77,9 +77,15 @@ src/
 
 ### Authentication
 - JWT-based authentication with automatic token management
+- Enhanced token persistence across multiple storage locations:
+  - **localStorage**: Primary token storage for persistence
+  - **sessionStorage**: Backup storage for session reliability  
+  - **Secure cookies**: HTTP-only cookies for SSR and middleware access
+  - **Expiry tracking**: Automatic validation using JWT payload expiration
 - MFA support with TOTP integration
 - Protected routes with automatic redirects
 - Role-based access control
+- Graceful token expiry handling and refresh
 
 ### Layout System
 - Responsive header with user menu
@@ -89,9 +95,14 @@ src/
 
 ### API Integration
 - Type-safe API client with Axios
-- Automatic token injection
+- Enhanced authentication token management:
+  - Multi-location token storage for reliability
+  - Automatic token injection in requests
+  - Token expiry validation and tracking
+  - Secure cookie support for SSR compatibility
 - Error handling and retry logic
 - Request/response interceptors
+- Graceful fallback for token parsing errors
 
 ## Available Scripts
 
@@ -120,9 +131,12 @@ src/
 
 ### ✅ Authentication System
 - [x] Login page with MFA support
-- [x] JWT token management
-- [x] Protected routes
+- [x] JWT token management with multi-location persistence
+- [x] Enhanced token storage (localStorage, sessionStorage, secure cookies)
+- [x] Automatic token expiry validation and tracking
+- [x] Protected routes with automatic redirects
 - [x] User context and state management
+- [x] SSR-compatible authentication with middleware support
 
 ### ✅ Dashboard Interface
 - [x] System overview dashboard

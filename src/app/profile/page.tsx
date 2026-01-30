@@ -13,6 +13,8 @@ import {
   EyeSlashIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
+  ClipboardDocumentIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 
 export default function ProfilePage() {
@@ -35,6 +37,9 @@ export default function ProfilePage() {
   const [mfaSecret, setMfaSecret] = useState('');
   const [mfaQrCode, setMfaQrCode] = useState('');
   const [mfaToken, setMfaToken] = useState('');
+  const [mfaBackupCodes, setMfaBackupCodes] = useState<string[]>([]);
+  const [showBackupCodes, setShowBackupCodes] = useState(false);
+  const [backupCodesSaved, setBackupCodesSaved] = useState(false);
   const [showPasswords, setShowPasswords] = useState({
     current: false,
     new: false,
@@ -64,6 +69,16 @@ export default function ProfilePage() {
         }
       }
 
+      // Handle password change separately if provided
+      if (profileData.newPassword) {
+        await apiClient.changePassword(
+          profileData.currentPassword,
+          profileData.newPassword,
+          profileData.confirmPassword
+        );
+      }
+
+      // Handle profile updates (excluding password fields)
       const updateData: any = {};
       
       // Only include email if it changed
@@ -71,14 +86,15 @@ export default function ProfilePage() {
         updateData.email = profileData.email;
       }
 
-      // Include password change if provided
-      if (profileData.newPassword) {
-        updateData.currentPassword = profileData.currentPassword;
-        updateData.newPassword = profileData.newPassword;
-      }
-
       if (Object.keys(updateData).length > 0) {
         await apiClient.updateUser(user!.id, updateData);
+      }
+
+      // Check if any changes were made
+      const hasPasswordChange = profileData.newPassword;
+      const hasProfileChange = Object.keys(updateData).length > 0;
+      
+      if (hasPasswordChange || hasProfileChange) {
         setMessage({ type: 'success', text: 'Profile updated successfully' });
         
         // Clear password fields
@@ -106,24 +122,16 @@ export default function ProfilePage() {
     setMessage(null);
     try {
       console.log('[Profile] Starting MFA setup...');
-      console.log('[Profile] Current state - Secret:', mfaSecret, 'QR Code:', mfaQrCode ? 'SET' : 'EMPTY');
       
       const mfaData = await apiClient.setupMfa();
       console.log('[Profile] MFA setup response:', JSON.stringify(mfaData, null, 2));
       
-      console.log('[Profile] Setting MFA secret:', mfaData.secret);
-      console.log('[Profile] Setting MFA QR code:', mfaData.qrCode ? `${mfaData.qrCode.substring(0, 50)}...` : 'EMPTY');
-      
       setMfaSecret(mfaData.secret);
       setMfaQrCode(mfaData.qrCode);
+      setMfaBackupCodes(mfaData.backupCodes || []);
       setShowMfaSetup(true);
       
-      // Verify state was set
-      setTimeout(() => {
-        console.log('[Profile] State after setting - Secret:', mfaData.secret ? 'SET' : 'EMPTY');
-        console.log('[Profile] State after setting - QR Code:', mfaData.qrCode ? 'SET' : 'EMPTY');
-        console.log('[Profile] Actual state values - Secret:', mfaSecret, 'QR Code:', mfaQrCode ? 'SET' : 'EMPTY');
-      }, 100);
+      console.log('[Profile] MFA setup complete - Secret:', !!mfaData.secret, 'QR Code:', !!mfaData.qrCode, 'Backup Codes:', mfaData.backupCodes?.length || 0);
       
     } catch (error: any) {
       console.error('[Profile] MFA setup error:', error);
@@ -147,6 +155,7 @@ export default function ProfilePage() {
       await apiClient.enableMfa(mfaToken);
       setMfaEnabled(true);
       setShowMfaSetup(false);
+      setShowBackupCodes(true); // Show backup codes after successful MFA verification
       setMessage({ type: 'success', text: 'MFA enabled successfully' });
     } catch (error: any) {
       setMessage({ 
@@ -178,16 +187,103 @@ export default function ProfilePage() {
     }
   };
 
+  // Backup code utility functions
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setMessage({ type: 'success', text: 'Copied to clipboard' });
+    } catch (error) {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setMessage({ type: 'success', text: 'Copied to clipboard' });
+    }
+  };
+
+  const copyAllBackupCodes = () => {
+    const codesText = mfaBackupCodes.join('\n');
+    copyToClipboard(codesText);
+  };
+
+  const downloadBackupCodes = () => {
+    const codesText = [
+      'WP-AutoHealer MFA Backup Codes',
+      '================================',
+      '',
+      'IMPORTANT: Save these codes in a secure location.',
+      'Each code can only be used once.',
+      '',
+      'Generated on: ' + new Date().toLocaleString(),
+      '',
+      ...mfaBackupCodes.map((code, index) => `${index + 1}. ${code}`)
+    ].join('\n');
+
+    const blob = new Blob([codesText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `wp-autohealer-backup-codes-${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBackupCodesClose = () => {
+    if (!backupCodesSaved) {
+      if (!confirm('Are you sure you want to close without confirming you\'ve saved your backup codes? You won\'t be able to see them again.')) {
+        return;
+      }
+    }
+    setShowBackupCodes(false);
+    setBackupCodesSaved(false);
+    setMfaBackupCodes([]);
+  };
+
+  const handleRegenerateBackupCodes = async () => {
+    if (!confirm('Are you sure you want to regenerate your backup codes? This will invalidate all existing backup codes.')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const newCodes = await apiClient.regenerateBackupCodes();
+      setMfaBackupCodes(newCodes);
+      setShowBackupCodes(true);
+      setBackupCodesSaved(false);
+      setMessage({ type: 'success', text: 'Backup codes regenerated successfully' });
+    } catch (error: any) {
+      setMessage({ 
+        type: 'error', 
+        text: error.response?.data?.message || 'Failed to regenerate backup codes' 
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadSessions = async () => {
     setLoadingSessions(true);
     try {
-      const response = await apiClient.get('/auth/sessions');
-      setSessions(response.data || []);
+      const sessionsData = await apiClient.getSessions();
+      console.log('[Profile] Sessions response:', sessionsData);
+      
+      // Handle the API response format - sessions should be in the data property
+      const sessionsList = Array.isArray(sessionsData) ? sessionsData : (sessionsData?.data || []);
+      console.log('[Profile] Processed sessions:', sessionsList);
+      
+      setSessions(sessionsList);
     } catch (error: any) {
+      console.error('[Profile] Failed to load sessions:', error);
       setMessage({ 
         type: 'error', 
         text: 'Failed to load sessions' 
       });
+      setSessions([]); // Ensure sessions is always an array
     } finally {
       setLoadingSessions(false);
     }
@@ -199,7 +295,7 @@ export default function ProfilePage() {
     }
 
     try {
-      await apiClient.delete(`/auth/sessions/${sessionId}`);
+      await apiClient.revokeSession(sessionId);
       setMessage({ type: 'success', text: 'Session revoked successfully' });
       loadSessions(); // Reload sessions
     } catch (error: any) {
@@ -341,6 +437,7 @@ export default function ProfilePage() {
                       <input
                         type={showPasswords.current ? 'text' : 'password'}
                         id="currentPassword"
+                        autoComplete="current-password"
                         value={profileData.currentPassword}
                         onChange={(e) => setProfileData(prev => ({ ...prev, currentPassword: e.target.value }))}
                         className="mt-1 block w-full pr-10 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
@@ -365,6 +462,7 @@ export default function ProfilePage() {
                       <input
                         type={showPasswords.new ? 'text' : 'password'}
                         id="newPassword"
+                        autoComplete="new-password"
                         value={profileData.newPassword}
                         onChange={(e) => setProfileData(prev => ({ ...prev, newPassword: e.target.value }))}
                         className="mt-1 block w-full pr-10 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
@@ -389,6 +487,7 @@ export default function ProfilePage() {
                       <input
                         type={showPasswords.confirm ? 'text' : 'password'}
                         id="confirmPassword"
+                        autoComplete="new-password"
                         value={profileData.confirmPassword}
                         onChange={(e) => setProfileData(prev => ({ ...prev, confirmPassword: e.target.value }))}
                         className="mt-1 block w-full pr-10 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
@@ -446,18 +545,27 @@ export default function ProfilePage() {
                       {mfaEnabled ? 'Enabled' : 'Disabled'}
                     </span>
                     {mfaEnabled ? (
-                      <button
-                        onClick={handleMfaDisable}
-                        disabled={loading}
-                        className="text-red-600 hover:text-red-700 text-sm font-medium disabled:opacity-50"
-                      >
-                        Disable
-                      </button>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={handleRegenerateBackupCodes}
+                          disabled={loading}
+                          className="bg-secondary text-foreground hover:bg-secondary/80 px-3 py-1 rounded text-sm transition-colors duration-200 disabled:opacity-50"
+                        >
+                          Regenerate Codes
+                        </button>
+                        <button
+                          onClick={handleMfaDisable}
+                          disabled={loading}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90 px-3 py-1 rounded text-sm transition-colors duration-200 disabled:opacity-50"
+                        >
+                          Disable
+                        </button>
+                      </div>
                     ) : (
                       <button
                         onClick={handleMfaSetup}
                         disabled={loading}
-                        className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                        className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Enable MFA
                       </button>
@@ -542,6 +650,108 @@ export default function ProfilePage() {
                           className="text-gray-600 hover:text-gray-700 text-sm font-medium"
                         >
                           Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Backup Codes Display Modal */}
+                {showBackupCodes && mfaBackupCodes.length > 0 && (
+                  <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-foreground">Your MFA Backup Codes</h4>
+                      <ShieldCheckIcon className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {/* Warning Message */}
+                      <div className="bg-warning/10 border border-warning/20 rounded-md p-4">
+                        <div className="flex">
+                          <ExclamationTriangleIcon className="h-5 w-5 text-warning mr-3 mt-0.5" />
+                          <div>
+                            <h5 className="text-sm font-medium text-warning">Important Security Information</h5>
+                            <ul className="mt-2 text-sm text-warning space-y-1">
+                              <li>• Save these codes in a secure location (password manager, safe, etc.)</li>
+                              <li>• Each code can only be used once</li>
+                              <li>• You won't be able to see these codes again after closing this window</li>
+                              <li>• Use these codes if you lose access to your authenticator app</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        <button
+                          onClick={copyAllBackupCodes}
+                          className="bg-secondary text-foreground hover:bg-secondary/80 px-4 py-2 rounded-md transition-colors duration-200 flex items-center gap-2"
+                        >
+                          <ClipboardDocumentIcon className="h-4 w-4" />
+                          Copy All Codes
+                        </button>
+                        <button
+                          onClick={downloadBackupCodes}
+                          className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors duration-200 flex items-center gap-2"
+                        >
+                          <ArrowDownTrayIcon className="h-4 w-4" />
+                          Download as File
+                        </button>
+                      </div>
+
+                      {/* Backup Codes Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {mfaBackupCodes.map((code, index) => (
+                          <div
+                            key={index}
+                            className="bg-muted border border-border rounded-md p-3 flex items-center justify-between"
+                          >
+                            <span className="font-mono text-sm text-foreground">
+                              {code}
+                            </span>
+                            <button
+                              onClick={() => copyToClipboard(code)}
+                              className="text-muted-foreground hover:text-foreground transition-colors duration-200 ml-2"
+                              title="Copy code"
+                            >
+                              <ClipboardDocumentIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Confirmation Checkbox */}
+                      <div className="flex items-center space-x-3 p-4 bg-muted rounded-md">
+                        <input
+                          type="checkbox"
+                          id="backupCodesSaved"
+                          checked={backupCodesSaved}
+                          onChange={(e) => setBackupCodesSaved(e.target.checked)}
+                          className="h-4 w-4 text-primary focus:ring-primary border-border rounded"
+                        />
+                        <label htmlFor="backupCodesSaved" className="text-sm text-foreground">
+                          I have saved my backup codes in a secure location
+                        </label>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex justify-end space-x-3">
+                        <button
+                          onClick={handleBackupCodesClose}
+                          className="bg-secondary text-foreground hover:bg-secondary/80 px-4 py-2 rounded-md transition-colors duration-200"
+                        >
+                          Close Without Saving
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowBackupCodes(false);
+                            setBackupCodesSaved(false);
+                            setMfaBackupCodes([]);
+                          }}
+                          disabled={!backupCodesSaved}
+                          className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Done
                         </button>
                       </div>
                     </div>

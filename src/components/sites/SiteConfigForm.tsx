@@ -152,7 +152,7 @@ export default function SiteConfigForm({ site, isOpen, onClose, onSave }: SiteCo
                   value={formData.serverId}
                   onChange={handleInputChange}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-select"
                 >
                   <option value="">Select a server</option>
                   {servers.map(server => (
@@ -177,7 +177,7 @@ export default function SiteConfigForm({ site, isOpen, onClose, onSave }: SiteCo
                   onBlur={generateUrls}
                   placeholder="example.com"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-input"
                 />
               </div>
 
@@ -194,7 +194,7 @@ export default function SiteConfigForm({ site, isOpen, onClose, onSave }: SiteCo
                   onChange={handleInputChange}
                   placeholder="/var/www/html"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-input"
                 />
               </div>
 
@@ -211,7 +211,7 @@ export default function SiteConfigForm({ site, isOpen, onClose, onSave }: SiteCo
                   onChange={handleInputChange}
                   placeholder="/var/www/html/wp"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-input"
                 />
               </div>
 
@@ -228,7 +228,7 @@ export default function SiteConfigForm({ site, isOpen, onClose, onSave }: SiteCo
                   onChange={handleInputChange}
                   placeholder="https://example.com"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-input"
                 />
               </div>
 
@@ -245,7 +245,7 @@ export default function SiteConfigForm({ site, isOpen, onClose, onSave }: SiteCo
                   onChange={handleInputChange}
                   placeholder="https://example.com/wp-admin"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-input"
                 />
               </div>
 

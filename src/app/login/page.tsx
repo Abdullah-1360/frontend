@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,10 +11,12 @@ import {
   ExclamationCircleIcon,
   CheckCircleIcon,
   KeyIcon,
-  DevicePhoneMobileIcon
+  DevicePhoneMobileIcon,
+  LockClosedIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mfaToken, setMfaToken] = useState('');
@@ -23,14 +25,58 @@ export default function LoginPage() {
   const [showBackupCode, setShowBackupCode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [lockoutInfo, setLockoutInfo] = useState<{
+    isLocked: boolean;
+    lockoutUntil?: string;
+    remainingTime?: number;
+  } | null>(null);
 
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
   const router = useRouter();
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push('/dashboard');
+    }
+  }, [isAuthenticated, router]);
+
+  // Countdown timer for lockout
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    if (lockoutInfo?.isLocked && lockoutInfo.lockoutUntil) {
+      interval = setInterval(() => {
+        const now = new Date().getTime();
+        const lockoutTime = new Date(lockoutInfo.lockoutUntil!).getTime();
+        const remainingTime = Math.max(0, lockoutTime - now);
+        
+        if (remainingTime <= 0) {
+          setLockoutInfo(null);
+          setError('');
+        } else {
+          setLockoutInfo(prev => prev ? { ...prev, remainingTime } : null);
+        }
+      }, 1000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [lockoutInfo?.isLocked, lockoutInfo?.lockoutUntil]);
+
+  // Format remaining time
+  const formatRemainingTime = (ms: number) => {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setLockoutInfo(null);
 
     try {
       const result = await login({ email, password, mfaToken: mfaToken || undefined });
@@ -39,11 +85,30 @@ export default function LoginPage() {
         router.push('/dashboard');
       } else if (result.requiresMfa) {
         setShowMfa(true);
+      } else if (result.isLocked) {
+        // Handle lockout from AuthContext
+        setLockoutInfo({
+          isLocked: true,
+          lockoutUntil: result.lockoutUntil,
+          remainingTime: result.lockoutUntil ? new Date(result.lockoutUntil).getTime() - new Date().getTime() : undefined
+        });
+        setError(result.error || 'Account is temporarily locked');
       } else {
         setError(result.error || 'Login failed');
       }
-    } catch (err) {
-      setError('An unexpected error occurred');
+    } catch (err: any) {
+      // Handle specific HTTP status codes
+      if (err.response?.status === 423) {
+        const lockoutUntil = err.response?.data?.lockoutUntil;
+        setLockoutInfo({
+          isLocked: true,
+          lockoutUntil,
+          remainingTime: lockoutUntil ? new Date(lockoutUntil).getTime() - new Date().getTime() : undefined
+        });
+        setError('Account is temporarily locked due to multiple failed login attempts');
+      } else {
+        setError('An unexpected error occurred');
+      }
     } finally {
       setLoading(false);
     }
@@ -165,8 +230,58 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Error Message */}
-            {error && (
+            {/* Error Message / Lockout Info */}
+            {lockoutInfo?.isLocked ? (
+              <div className="bg-warning/10 border-2 border-warning/20 rounded-2xl p-6 animate-in slide-in-from-top-2 duration-300">
+                <div className="flex items-start space-x-4">
+                  <div className="flex-shrink-0">
+                    <div className="w-12 h-12 bg-warning/20 rounded-full flex items-center justify-center">
+                      <LockClosedIcon className="h-6 w-6 text-warning" />
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-warning mb-2">Account Temporarily Locked</h3>
+                    <p className="text-sm text-warning/80 mb-4 leading-relaxed">
+                      Your account has been locked due to multiple failed login attempts. This is a security measure to protect your account.
+                    </p>
+                    
+                    {lockoutInfo.remainingTime && lockoutInfo.remainingTime > 0 ? (
+                      <div className="bg-warning/10 rounded-xl p-4 border border-warning/20">
+                        <div className="flex items-center space-x-3">
+                          <ClockIcon className="h-5 w-5 text-warning" />
+                          <div>
+                            <p className="text-sm font-medium text-warning">
+                              Account will unlock in: {formatRemainingTime(lockoutInfo.remainingTime)}
+                            </p>
+                            <p className="text-xs text-warning/70 mt-1">
+                              Please wait before attempting to log in again
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : lockoutInfo.lockoutUntil ? (
+                      <div className="bg-warning/10 rounded-xl p-4 border border-warning/20">
+                        <p className="text-sm font-medium text-warning">
+                          Account locked until: {new Date(lockoutInfo.lockoutUntil).toLocaleString()}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="bg-warning/10 rounded-xl p-4 border border-warning/20">
+                        <p className="text-sm font-medium text-warning">
+                          Please contact your administrator to unlock your account
+                        </p>
+                      </div>
+                    )}
+                    
+                    <div className="mt-4 text-xs text-warning/70">
+                      <p>• Accounts are automatically locked after 5 failed login attempts</p>
+                      <p>• Lockout duration is 15 minutes for security</p>
+                      <p>• Contact support if you need immediate assistance</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : error && (
               <div className="bg-destructive/10 border-2 border-destructive/20 rounded-2xl p-4 animate-in slide-in-from-top-2 duration-300">
                 <div className="flex items-center space-x-3">
                   <ExclamationCircleIcon className="h-6 w-6 text-destructive flex-shrink-0" />
@@ -178,7 +293,7 @@ export default function LoginPage() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || lockoutInfo?.isLocked}
               className="w-full bg-gradient-to-r from-primary to-blue-600 text-primary-foreground hover:from-primary/90 hover:to-blue-600/90 focus:ring-4 focus:ring-primary/30 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed px-6 py-4 rounded-2xl font-semibold transition-all duration-300 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 flex items-center justify-center space-x-3 text-base relative overflow-hidden group"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
@@ -186,6 +301,11 @@ export default function LoginPage() {
                 <>
                   <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary-foreground border-t-transparent"></div>
                   <span>Signing in...</span>
+                </>
+              ) : lockoutInfo?.isLocked ? (
+                <>
+                  <LockClosedIcon className="h-6 w-6" />
+                  <span>Account Locked</span>
                 </>
               ) : (
                 <>
@@ -288,4 +408,7 @@ export default function LoginPage() {
       `}</style>
     </div>
   );
+}
+export default function LoginPage() {
+  return <LoginForm />;
 }

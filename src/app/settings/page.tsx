@@ -1,23 +1,28 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+
+import {
+  CheckCircleIcon,
+  ClockIcon,
+  Cog6ToothIcon,
+  EnvelopeIcon,
+  ExclamationTriangleIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  InformationCircleIcon,
+  KeyIcon,
+  PencilIcon,
+  PlusIcon,
+  ShieldCheckIcon,
+  TrashIcon,
+  UsersIcon,
+} from '@heroicons/react/24/outline';
+
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatDate } from '@/lib/utils';
 import { apiClient, User } from '@/lib/api';
-import {
-  Cog6ToothIcon,
-  ClockIcon,
-  TrashIcon,
-  ExclamationTriangleIcon,
-  CheckCircleIcon,
-  InformationCircleIcon,
-  ShieldCheckIcon,
-  UsersIcon,
-  PlusIcon,
-  PencilIcon,
-  KeyIcon,
-} from '@heroicons/react/24/outline';
+import { formatDate } from '@/lib/utils';
 
 interface PurgeAuditRecord {
   id: string;
@@ -41,6 +46,26 @@ interface SystemConfig {
   maxRetentionDays: number;
 }
 
+interface SmtpConfig {
+  id?: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  fromAddress: string;
+  fromName: string;
+  useTls: boolean;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Settings page component for managing system configuration, data retention, users, and security settings.
+ * Provides tabbed interface for different settings categories with role-based access control.
+ * 
+ * @returns JSX element containing the settings page interface
+ */
 export default function SettingsPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('retention');
@@ -75,14 +100,38 @@ export default function SettingsPage() {
     roleId: '',
   });
 
+  // Email configuration state
+  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>({
+    host: '',
+    port: 587,
+    username: '',
+    password: '',
+    fromAddress: '',
+    fromName: 'WP-AutoHealer',
+    useTls: true,
+    isActive: true,
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
+
   useEffect(() => {
     fetchPurgeAuditRecords();
     fetchSystemConfig();
     if (activeTab === 'users') {
       fetchUsers();
     }
+    if (activeTab === 'email') {
+      fetchSmtpConfig();
+    }
   }, [activeTab]);
 
+  /**
+   * Fetches purge audit records from the retention API.
+   * Handles authentication errors and provides fallback mock data for demonstration.
+   * 
+   * @returns Promise that resolves when audit records are fetched and state is updated
+   */
   const fetchPurgeAuditRecords = async () => {
     try {
       const response = await apiClient.get('/retention/audit/purge');
@@ -134,11 +183,29 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Fetches system configuration settings from the API.
+   * Handles authentication and authorization errors gracefully.
+   * 
+   * @returns Promise that resolves when system config is fetched and state is updated
+   */
   const fetchSystemConfig = async () => {
     try {
       const response = await apiClient.get('/system/config');
       const config = response.data || response;
-      setSystemConfig(config);
+      
+      // Ensure all fields have valid defaults to prevent controlled/uncontrolled input issues
+      setSystemConfig({
+        maxFixAttempts: config.maxFixAttempts ?? 15,
+        cooldownWindow: config.cooldownWindow ?? 600,
+        sshTimeout: config.sshTimeout ?? 30,
+        circuitBreakerThreshold: config.circuitBreakerThreshold ?? 5,
+        circuitBreakerTimeout: config.circuitBreakerTimeout ?? 300,
+        verificationTimeout: config.verificationTimeout ?? 30,
+        verificationRetryAttempts: config.verificationRetryAttempts ?? 3,
+        defaultRetentionDays: config.defaultRetentionDays ?? 3,
+        maxRetentionDays: config.maxRetentionDays ?? 7,
+      });
     } catch (error: any) {
       console.error('Failed to fetch system configuration:', error);
       
@@ -154,6 +221,12 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Fetches the list of users from the API.
+   * Handles authentication and authorization errors, sets empty array on failure.
+   * 
+   * @returns Promise that resolves when users are fetched and state is updated
+   */
   const fetchUsers = async () => {
     try {
       const response = await apiClient.getUsers();
@@ -177,6 +250,61 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Fetches SMTP configuration settings from the API.
+   * Handles authentication errors and missing configuration gracefully.
+   * Clears password field for security when loading existing config.
+   * 
+   * @returns Promise that resolves when SMTP config is fetched and state is updated
+   */
+  /**
+   * Fetches SMTP configuration settings from the API.
+   * Handles authentication errors and missing configuration gracefully.
+   * Clears password field for security when loading existing config.
+   * 
+   * @returns Promise that resolves when SMTP config is fetched and state is updated
+   */
+  const fetchSmtpConfig = async () => {
+    try {
+      const response = await apiClient.get('/auth/settings/smtp');
+      if (response.data) {
+        setSmtpConfig({
+          host: response.data.host || '',
+          port: response.data.port || 587,
+          username: response.data.username || '',
+          password: '', // Don't populate password field for security
+          fromAddress: response.data.fromAddress || '',
+          fromName: response.data.fromName || 'WP-AutoHealer',
+          useTls: response.data.useTls !== undefined ? response.data.useTls : true,
+          isActive: response.data.isActive !== undefined ? response.data.isActive : true,
+          id: response.data.id,
+          createdAt: response.data.createdAt,
+          updatedAt: response.data.updatedAt,
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch SMTP configuration:', error);
+      
+      // Handle different error types
+      if (error.response?.status === 401) {
+        window.location.href = '/login';
+        return;
+      } else if (error.response?.status === 403) {
+        console.warn('User does not have access to email settings');
+      } else if (error.response?.status === 404) {
+        // No SMTP config exists yet - keep default values
+        console.info('No SMTP configuration found - using defaults');
+      }
+    }
+  };
+
+  /**
+   * Handles form submission for updating data retention settings.
+   * Validates retention period is within allowed range (1-7 days).
+   * 
+   * @param e - React form event
+   * @returns Promise that resolves when retention settings are updated
+   */
   const handleRetentionUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -198,6 +326,13 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Handles form submission for updating system configuration settings.
+   * Updates various system parameters like timeouts, thresholds, and retry attempts.
+   * 
+   * @param e - React form event
+   * @returns Promise that resolves when system configuration is updated
+   */
   const handleSystemConfigUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -216,6 +351,13 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Handles manual purge operation for expired data.
+   * Shows confirmation dialog before executing the purge operation.
+   * Refreshes audit records after successful purge.
+   * 
+   * @returns Promise that resolves when manual purge is completed
+   */
   const handleManualPurge = async () => {
     if (!confirm('Are you sure you want to run a manual purge? This will permanently delete expired data according to the current retention policy.')) {
       return;
@@ -246,6 +388,14 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Handles form submission for creating a new user.
+   * Validates required fields and creates user with specified role.
+   * Refreshes user list after successful creation.
+   * 
+   * @param e - React form event
+   * @returns Promise that resolves when user is created
+   */
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -267,6 +417,14 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Handles updating user information such as role changes.
+   * Refreshes user list after successful update.
+   * 
+   * @param userId - ID of the user to update
+   * @param updates - Partial user object containing fields to update
+   * @returns Promise that resolves when user is updated
+   */
   const handleUpdateUser = async (userId: string, updates: Partial<User>) => {
     setLoading(true);
     setMessage(null);
@@ -286,6 +444,15 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Handles user deletion with confirmation dialog.
+   * Shows confirmation dialog with user email before deletion.
+   * Refreshes user list after successful deletion.
+   * 
+   * @param userId - ID of the user to delete
+   * @param userEmail - Email address of the user (for confirmation dialog)
+   * @returns Promise that resolves when user is deleted
+   */
   const handleDeleteUser = async (userId: string, userEmail: string) => {
     if (!confirm(`Are you sure you want to delete user ${userEmail}? This action cannot be undone.`)) {
       return;
@@ -308,6 +475,14 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Handles enabling or disabling MFA for a user.
+   * Refreshes user list after successful MFA toggle.
+   * 
+   * @param userId - ID of the user to toggle MFA for
+   * @param enable - Whether to enable (true) or disable (false) MFA
+   * @returns Promise that resolves when MFA is toggled
+   */
   const handleToggleMFA = async (userId: string, enable: boolean) => {
     setLoading(true);
     setMessage(null);
@@ -326,10 +501,83 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Handles form submission for updating SMTP configuration settings.
+   * Updates email server settings including host, port, credentials, and TLS options.
+   * 
+   * @param e - React form event
+   * @returns Promise that resolves when SMTP configuration is updated
+   */
+  /**
+   * Handles form submission for updating SMTP configuration settings.
+   * Sends SMTP configuration to the API and shows success/error messages.
+   * 
+   * @param e - React form event
+   * @returns Promise that resolves when SMTP configuration is updated
+   */
+  const handleSmtpConfigUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      await apiClient.put('/auth/settings/smtp', smtpConfig);
+      setMessage({ type: 'success', text: 'Email configuration updated successfully' });
+    } catch (error: any) {
+      setMessage({ 
+        type: 'error', 
+        text: error.response?.data?.message || 'Failed to update email configuration' 
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Handles sending a test email to verify SMTP configuration.
+   * Validates test email address is provided before sending.
+   * Clears test email field after successful send.
+   * 
+   * @param e - React form event
+   * @returns Promise that resolves when test email is sent
+   */
+  /**
+   * Handles sending a test email to verify SMTP configuration.
+   * Validates test email address is provided before sending.
+   * Clears test email field after successful send.
+   * 
+   * @param e - React form event
+   * @returns Promise that resolves when test email is sent
+   */
+  const handleTestEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testEmail) {
+      setMessage({ type: 'error', text: 'Please enter a test email address' });
+      return;
+    }
+
+    setTestEmailLoading(true);
+    setMessage(null);
+
+    try {
+      await apiClient.post('/auth/settings/smtp/test', { testEmail });
+      setMessage({ type: 'success', text: `Test email sent successfully to ${testEmail}` });
+      setTestEmail('');
+    } catch (error: any) {
+      setMessage({ 
+        type: 'error', 
+        text: error.response?.data?.message || 'Failed to send test email' 
+      });
+    } finally {
+      setTestEmailLoading(false);
+    }
+  };
+
   const tabs = [
     { id: 'retention', name: 'Data Retention', icon: ClockIcon },
     { id: 'system', name: 'System Config', icon: Cog6ToothIcon },
     { id: 'users', name: 'Users & Roles', icon: UsersIcon },
+    { id: 'email', name: 'Email Configuration', icon: EnvelopeIcon },
     { id: 'security', name: 'Security', icon: ShieldCheckIcon },
   ];
 
@@ -400,9 +648,9 @@ export default function SettingsPage() {
           </nav>
         </div>
 
-        <div className="bg-white shadow rounded-lg">
+        <div className="card">
           {activeTab === 'retention' && (
-            <div className="p-6">
+            <div className="card-content">
               <h3 className="text-lg font-medium text-gray-900 mb-6">Data Retention Policy</h3>
               
               <form onSubmit={handleRetentionUpdate} className="space-y-6">
@@ -428,7 +676,7 @@ export default function SettingsPage() {
                       value={retentionDays}
                       onChange={(e) => setRetentionDays(parseInt(e.target.value))}
                       disabled={!canModifySettings}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm disabled:bg-gray-100"
+                      className="form-select"
                     >
                       <option value={1}>1 Day</option>
                       <option value={2}>2 Days</option>
@@ -449,7 +697,7 @@ export default function SettingsPage() {
                       value={purgeSchedule}
                       onChange={(e) => setPurgeSchedule(e.target.value)}
                       disabled={!canModifySettings}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm disabled:bg-gray-100"
+                      className="form-select"
                     >
                       <option value="daily">Daily at 2:00 AM</option>
                       <option value="hourly">Every Hour</option>
@@ -463,7 +711,7 @@ export default function SettingsPage() {
                     type="button"
                     onClick={handleManualPurge}
                     disabled={loading || !canModifySettings}
-                    className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 disabled:opacity-50 flex items-center"
+                    className="btn-destructive btn-sm"
                   >
                     <TrashIcon className="h-4 w-4 mr-2" />
                     Run Manual Purge
@@ -472,7 +720,7 @@ export default function SettingsPage() {
                   <button
                     type="submit"
                     disabled={loading || !canModifySettings}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    className="btn-primary btn-sm"
                   >
                     {loading ? 'Saving...' : 'Save Settings'}
                   </button>
@@ -524,7 +772,7 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'system' && (
-            <div className="p-6">
+            <div className="card-content">
               <h3 className="text-lg font-medium text-gray-900 mb-6">System Configuration</h3>
               
               <form onSubmit={handleSystemConfigUpdate} className="space-y-6">
@@ -538,10 +786,10 @@ export default function SettingsPage() {
                       id="maxFixAttempts"
                       min="1"
                       max="20"
-                      value={systemConfig.maxFixAttempts}
-                      onChange={(e) => setSystemConfig(prev => ({ ...prev, maxFixAttempts: parseInt(e.target.value) }))}
+                      value={systemConfig.maxFixAttempts ?? ''}
+                      onChange={(e) => setSystemConfig(prev => ({ ...prev, maxFixAttempts: parseInt(e.target.value) || 15 }))}
                       disabled={!canModifySettings}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm disabled:bg-gray-100"
+                      className="form-input"
                     />
                     <p className="mt-1 text-sm text-gray-500">
                       Hard limit on fix attempts before escalation (1-20).
@@ -554,10 +802,10 @@ export default function SettingsPage() {
                     </label>
                     <select
                       id="cooldownWindow"
-                      value={systemConfig.cooldownWindow}
-                      onChange={(e) => setSystemConfig(prev => ({ ...prev, cooldownWindow: parseInt(e.target.value) }))}
+                      value={systemConfig.cooldownWindow ?? 600}
+                      onChange={(e) => setSystemConfig(prev => ({ ...prev, cooldownWindow: parseInt(e.target.value) || 600 }))}
                       disabled={!canModifySettings}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm disabled:bg-gray-100"
+                      className="form-select"
                     >
                       <option value={300}>5 Minutes</option>
                       <option value={600}>10 Minutes</option>
@@ -575,10 +823,10 @@ export default function SettingsPage() {
                       id="sshTimeout"
                       min="10"
                       max="120"
-                      value={systemConfig.sshTimeout}
-                      onChange={(e) => setSystemConfig(prev => ({ ...prev, sshTimeout: parseInt(e.target.value) }))}
+                      value={systemConfig.sshTimeout ?? ''}
+                      onChange={(e) => setSystemConfig(prev => ({ ...prev, sshTimeout: parseInt(e.target.value) || 30 }))}
                       disabled={!canModifySettings}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm disabled:bg-gray-100"
+                      className="form-input"
                     />
                     <p className="mt-1 text-sm text-gray-500">
                       Timeout in seconds for SSH connections (10-120).
@@ -594,10 +842,10 @@ export default function SettingsPage() {
                       id="circuitBreakerThreshold"
                       min="1"
                       max="20"
-                      value={systemConfig.circuitBreakerThreshold}
-                      onChange={(e) => setSystemConfig(prev => ({ ...prev, circuitBreakerThreshold: parseInt(e.target.value) }))}
+                      value={systemConfig.circuitBreakerThreshold ?? ''}
+                      onChange={(e) => setSystemConfig(prev => ({ ...prev, circuitBreakerThreshold: parseInt(e.target.value) || 5 }))}
                       disabled={!canModifySettings}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm disabled:bg-gray-100"
+                      className="form-input"
                     />
                     <p className="mt-1 text-sm text-gray-500">
                       Number of failures before circuit breaker opens (1-20).
@@ -613,10 +861,10 @@ export default function SettingsPage() {
                       id="verificationTimeout"
                       min="5"
                       max="120"
-                      value={systemConfig.verificationTimeout}
-                      onChange={(e) => setSystemConfig(prev => ({ ...prev, verificationTimeout: parseInt(e.target.value) }))}
+                      value={systemConfig.verificationTimeout ?? ''}
+                      onChange={(e) => setSystemConfig(prev => ({ ...prev, verificationTimeout: parseInt(e.target.value) || 30 }))}
                       disabled={!canModifySettings}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm disabled:bg-gray-100"
+                      className="form-input"
                     />
                     <p className="mt-1 text-sm text-gray-500">
                       Timeout in seconds for site verification (5-120).
@@ -632,10 +880,10 @@ export default function SettingsPage() {
                       id="verificationRetryAttempts"
                       min="1"
                       max="10"
-                      value={systemConfig.verificationRetryAttempts}
-                      onChange={(e) => setSystemConfig(prev => ({ ...prev, verificationRetryAttempts: parseInt(e.target.value) }))}
+                      value={systemConfig.verificationRetryAttempts ?? ''}
+                      onChange={(e) => setSystemConfig(prev => ({ ...prev, verificationRetryAttempts: parseInt(e.target.value) || 3 }))}
                       disabled={!canModifySettings}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm disabled:bg-gray-100"
+                      className="form-input"
                     />
                     <p className="mt-1 text-sm text-gray-500">
                       Number of retry attempts for verification (1-10).
@@ -647,7 +895,7 @@ export default function SettingsPage() {
                   <button
                     type="submit"
                     disabled={loading || !canModifySettings}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    className="btn-primary btn-sm"
                   >
                     {loading ? 'Saving...' : 'Save Configuration'}
                   </button>
@@ -657,7 +905,7 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'users' && (
-            <div className="p-6">
+            <div className="card-content">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-medium text-gray-900">User & Role Management</h3>
                 {canModifySettings && (
@@ -805,8 +1053,241 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {activeTab === 'email' && (
+            <div className="card-content">
+              <h3 className="text-lg font-medium text-gray-900 mb-6">Email Configuration</h3>
+              
+              <div className="space-y-8">
+                {/* SMTP Configuration Form */}
+                <div>
+                  <h4 className="text-base font-medium text-gray-900 mb-4">SMTP Settings</h4>
+                  
+                  <form onSubmit={handleSmtpConfigUpdate} className="space-y-6">
+                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="smtp-host" className="form-label">
+                          SMTP Host
+                        </label>
+                        <input
+                          type="text"
+                          id="smtp-host"
+                          value={smtpConfig.host || ''}
+                          onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
+                          disabled={!canModifySettings}
+                          placeholder="smtp.gmail.com"
+                          className="form-input"
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="smtp-port" className="form-label">
+                          SMTP Port
+                        </label>
+                        <input
+                          type="number"
+                          id="smtp-port"
+                          value={smtpConfig.port ?? 587}
+                          onChange={(e) => setSmtpConfig({ ...smtpConfig, port: parseInt(e.target.value) || 587 })}
+                          disabled={!canModifySettings}
+                          min="1"
+                          max="65535"
+                          className="form-input"
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="smtp-username" className="form-label">
+                          Username
+                        </label>
+                        <input
+                          type="text"
+                          id="smtp-username"
+                          value={smtpConfig.username || ''}
+                          onChange={(e) => setSmtpConfig({ ...smtpConfig, username: e.target.value })}
+                          disabled={!canModifySettings}
+                          placeholder="your-email@gmail.com"
+                          className="form-input"
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="smtp-password" className="form-label">
+                          Password
+                        </label>
+                        <div className="mt-1 relative">
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            id="smtp-password"
+                            value={smtpConfig.password || ''}
+                            onChange={(e) => setSmtpConfig({ ...smtpConfig, password: e.target.value })}
+                            disabled={!canModifySettings}
+                            placeholder="Enter password to update"
+                            className="form-input pr-12"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                          >
+                            {showPassword ? (
+                              <EyeSlashIcon className="h-5 w-5 text-gray-400" />
+                            ) : (
+                              <EyeIcon className="h-5 w-5 text-gray-400" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label htmlFor="from-address" className="form-label">
+                          From Email Address
+                        </label>
+                        <input
+                          type="email"
+                          id="from-address"
+                          value={smtpConfig.fromAddress || ''}
+                          onChange={(e) => setSmtpConfig({ ...smtpConfig, fromAddress: e.target.value })}
+                          disabled={!canModifySettings}
+                          placeholder="noreply@wp-autohealer.com"
+                          className="form-input"
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="from-name" className="form-label">
+                          From Name
+                        </label>
+                        <input
+                          type="text"
+                          id="from-name"
+                          value={smtpConfig.fromName || ''}
+                          onChange={(e) => setSmtpConfig({ ...smtpConfig, fromName: e.target.value })}
+                          disabled={!canModifySettings}
+                          placeholder="WP-AutoHealer"
+                          className="form-input"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center">
+                      <input
+                        id="use-tls"
+                        type="checkbox"
+                        checked={smtpConfig.useTls}
+                        onChange={(e) => setSmtpConfig({ ...smtpConfig, useTls: e.target.checked })}
+                        disabled={!canModifySettings}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50"
+                      />
+                      <label htmlFor="use-tls" className="ml-2 block text-sm text-gray-900">
+                        Use TLS encryption (recommended)
+                      </label>
+                    </div>
+
+                    {canModifySettings && (
+                      <div className="flex justify-end">
+                        <button
+                          type="submit"
+                          disabled={loading}
+                          className="btn-primary"
+                        >
+                          {loading ? 'Saving...' : 'Save Configuration'}
+                        </button>
+                      </div>
+                    )}
+                  </form>
+                </div>
+
+                {/* Test Email Section */}
+                <div className="border-t border-gray-200 pt-8">
+                  <h4 className="text-base font-medium text-gray-900 mb-4">Test Email Configuration</h4>
+                  
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                    <div className="flex">
+                      <InformationCircleIcon className="h-5 w-5 text-blue-400 mr-3 mt-0.5" />
+                      <div>
+                        <h5 className="text-sm font-medium text-blue-800">Test Your Configuration</h5>
+                        <p className="mt-1 text-sm text-blue-700">
+                          Send a test email to verify your SMTP configuration is working correctly.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleTestEmail} className="space-y-4">
+                    <div className="flex gap-4">
+                      <div className="flex-1">
+                        <label htmlFor="test-email" className="block text-sm font-medium text-gray-700">
+                          Test Email Address
+                        </label>
+                        <input
+                          type="email"
+                          id="test-email"
+                          value={testEmail || ''}
+                          onChange={(e) => setTestEmail(e.target.value)}
+                          placeholder="admin@example.com"
+                          className="form-input"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="submit"
+                          disabled={testEmailLoading || !testEmail}
+                          className="btn-secondary btn-sm"
+                        >
+                          {testEmailLoading ? 'Sending...' : 'Send Test Email'}
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+
+                {/* Current Configuration Display */}
+                {smtpConfig.id && (
+                  <div className="border-t border-gray-200 pt-8">
+                    <h4 className="text-base font-medium text-gray-900 mb-4">Current Configuration</h4>
+                    
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">SMTP Host</dt>
+                          <dd className="text-sm text-gray-900">{smtpConfig.host || 'Not configured'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Port</dt>
+                          <dd className="text-sm text-gray-900">{smtpConfig.port}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Username</dt>
+                          <dd className="text-sm text-gray-900">{smtpConfig.username || 'Not configured'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">From Address</dt>
+                          <dd className="text-sm text-gray-900">{smtpConfig.fromAddress || 'Not configured'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">From Name</dt>
+                          <dd className="text-sm text-gray-900">{smtpConfig.fromName}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">TLS Encryption</dt>
+                          <dd className="text-sm text-gray-900">{smtpConfig.useTls ? 'Enabled' : 'Disabled'}</dd>
+                        </div>
+                        {smtpConfig.updatedAt && (
+                          <div className="sm:col-span-2">
+                            <dt className="text-sm font-medium text-gray-500">Last Updated</dt>
+                            <dd className="text-sm text-gray-900">{formatDate(smtpConfig.updatedAt)}</dd>
+                          </div>
+                        )}
+                      </dl>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'security' && (
-            <div className="p-6">
+            <div className="card-content">
               <h3 className="text-lg font-medium text-gray-900 mb-6">Security Settings</h3>
               
               <div className="space-y-6">
@@ -867,25 +1348,28 @@ export default function SettingsPage() {
       {/* Create User Modal */}
       {showCreateUserModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Create New User</h3>
-              <form onSubmit={handleCreateUser} className="space-y-4">
+          <div className="relative top-20 mx-auto p-5 w-96 shadow-lg rounded-xl">
+            <div className="card">
+              <div className="card-header">
+                <h3 className="text-lg font-medium text-gray-900">Create New User</h3>
+              </div>
+              <div className="card-content">
+                <form id="create-user-form" onSubmit={handleCreateUser} className="space-y-4">
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="email" className="form-label">
                     Email Address
                   </label>
                   <input
                     type="email"
                     id="email"
                     required
-                    value={newUser.email}
+                    value={newUser.email || ''}
                     onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="form-input"
                   />
                 </div>
                 <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="password" className="form-label">
                     Password
                   </label>
                   <input
@@ -893,20 +1377,20 @@ export default function SettingsPage() {
                     id="password"
                     required
                     minLength={8}
-                    value={newUser.password}
+                    value={newUser.password || ''}
                     onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="form-input"
                   />
                 </div>
                 <div>
-                  <label htmlFor="role" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="role" className="form-label">
                     Role
                   </label>
                   <select
                     id="role"
-                    value={newUser.roleId}
+                    value={newUser.roleId || ''}
                     onChange={(e) => setNewUser({ ...newUser, roleId: e.target.value })}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="form-select"
                   >
                     <option value="">Select Role</option>
                     <option value="viewer">Viewer</option>
@@ -915,26 +1399,30 @@ export default function SettingsPage() {
                     {user?.role?.name === 'SUPER_ADMIN' && <option value="super-admin">Super Admin</option>}
                   </select>
                 </div>
-                <div className="flex justify-end space-x-3 pt-4">
+                </form>
+              </div>
+              <div className="card-footer">
+                <div className="flex justify-end space-x-3">
                   <button
                     type="button"
                     onClick={() => {
                       setShowCreateUserModal(false);
                       setNewUser({ email: '', password: '', roleId: '' });
                     }}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
+                    className="btn-secondary btn-sm"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    className="btn-primary btn-sm"
+                    form="create-user-form"
                   >
                     {loading ? 'Creating...' : 'Create User'}
                   </button>
                 </div>
-              </form>
+              </div>
             </div>
           </div>
         </div>

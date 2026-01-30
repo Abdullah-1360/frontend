@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
   reactCompiler: true,
   output: 'standalone',
   
+  // Fix workspace root warning
+  turbopack: {
+    root: __dirname,
+  },
+  
   // Production optimizations
   compress: true,
   poweredByHeader: false,

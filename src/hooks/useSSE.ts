@@ -57,7 +57,7 @@ export function useSSE(options: SSEOptions = {}) {
     }
 
     // Get auth token first
-    const token = localStorage.getItem('auth_token');
+    const token = apiClient.getToken();
     if (!token) {
       log('No authentication token available, skipping connection');
       setState(prev => ({

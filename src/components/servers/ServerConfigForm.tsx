@@ -141,7 +141,7 @@ export default function ServerConfigForm({ server, isOpen, onClose, onSave }: Se
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Server Name */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="form-label">
                   <ServerIcon className="h-4 w-4 inline mr-1" />
                   Server Name
                 </label>
@@ -152,13 +152,13 @@ export default function ServerConfigForm({ server, isOpen, onClose, onSave }: Se
                   onChange={handleInputChange}
                   placeholder="Production Server 1"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-input"
                 />
               </div>
 
               {/* Hostname */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="form-label">
                   Hostname/IP Address
                 </label>
                 <input
@@ -168,13 +168,13 @@ export default function ServerConfigForm({ server, isOpen, onClose, onSave }: Se
                   onChange={handleInputChange}
                   placeholder="server.example.com or 192.168.1.100"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-input"
                 />
               </div>
 
               {/* Port */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="form-label">
                   SSH Port
                 </label>
                 <input
@@ -185,13 +185,13 @@ export default function ServerConfigForm({ server, isOpen, onClose, onSave }: Se
                   min="1"
                   max="65535"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-input"
                 />
               </div>
 
               {/* Username */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="form-label">
                   Username
                 </label>
                 <input
@@ -201,20 +201,20 @@ export default function ServerConfigForm({ server, isOpen, onClose, onSave }: Se
                   onChange={handleInputChange}
                   placeholder="root or ubuntu"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-input"
                 />
               </div>
 
               {/* Authentication Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="form-label">
                   Authentication Type
                 </label>
                 <select
                   name="authType"
                   value={formData.authType}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="form-select"
                 >
                   <option value="key">SSH Key (Recommended)</option>
                   <option value="password">Password</option>
@@ -265,7 +265,7 @@ export default function ServerConfigForm({ server, isOpen, onClose, onSave }: Se
                     placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
                     rows={6}
                     required={!server} // Required for new servers
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-md text-foreground placeholder-muted-foreground bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary font-mono text-sm"
                     style={{ display: showCredentials ? 'block' : 'none' }}
                   />
                 ) : (
@@ -276,7 +276,7 @@ export default function ServerConfigForm({ server, isOpen, onClose, onSave }: Se
                     onChange={handleInputChange}
                     placeholder="Enter password"
                     required={!server} // Required for new servers
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-border rounded-md text-foreground placeholder-muted-foreground bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                   />
                 )}
                 {!showCredentials && (

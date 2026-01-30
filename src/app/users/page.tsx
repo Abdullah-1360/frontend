@@ -47,6 +47,11 @@ export default function UsersPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [lockoutStats, setLockoutStats] = useState<{
+    totalLockedAccounts: number;
+    accountsLockedToday: number;
+    topFailedAttemptUsers: Array<{ email: string; username: string; failedAttempts: number }>;
+  } | null>(null);
 
   // Create user form state
   const [createUserData, setCreateUserData] = useState<CreateUserData>({
@@ -63,6 +68,7 @@ export default function UsersPage() {
   useEffect(() => {
     loadUsers();
     loadRoles();
+    loadLockoutStats();
   }, []);
 
   const loadUsers = async () => {
@@ -82,6 +88,15 @@ export default function UsersPage() {
       setRoles(response || []);
     } catch (error) {
       console.error('Failed to load roles:', error);
+    }
+  };
+
+  const loadLockoutStats = async () => {
+    try {
+      const stats = await apiClient.getLockoutStats();
+      setLockoutStats(stats);
+    } catch (error) {
+      console.error('Failed to load lockout stats:', error);
     }
   };
 
@@ -171,6 +186,28 @@ export default function UsersPage() {
       setMessage({ 
         type: 'error', 
         text: error.response?.data?.message || 'Failed to unlock user' 
+      });
+    }
+  };
+
+  const handleLockUser = async (userId: string) => {
+    const reason = prompt('Enter reason for locking this account (optional):');
+    if (reason === null) return; // User cancelled
+    
+    if (!confirm('Are you sure you want to lock this user account?')) {
+      return;
+    }
+
+    try {
+      await apiClient.lockUserAccount(userId, reason || undefined);
+      setUsers(users.map(u => 
+        u.id === userId ? { ...u, isLocked: true, lockoutUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString() } : u
+      ));
+      setMessage({ type: 'success', text: 'User locked successfully' });
+    } catch (error: any) {
+      setMessage({ 
+        type: 'error', 
+        text: error.response?.data?.message || 'Failed to lock user' 
       });
     }
   };
@@ -275,6 +312,43 @@ export default function UsersPage() {
               )}
               {message.text}
             </div>
+          </div>
+        )}
+
+        {/* Lockout Statistics */}
+        {lockoutStats && (
+          <div className="bg-card border border-border rounded-lg p-6">
+            <h3 className="text-lg font-medium text-foreground mb-4 flex items-center">
+              <LockClosedIcon className="h-5 w-5 mr-2 text-warning" />
+              Account Lockout Statistics
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-muted/50 rounded-lg p-4">
+                <div className="text-2xl font-bold text-foreground">{lockoutStats.totalLockedAccounts}</div>
+                <div className="text-sm text-muted-foreground">Total Locked Accounts</div>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-4">
+                <div className="text-2xl font-bold text-warning">{lockoutStats.accountsLockedToday}</div>
+                <div className="text-sm text-muted-foreground">Locked Today</div>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-4">
+                <div className="text-2xl font-bold text-destructive">{lockoutStats.topFailedAttemptUsers.length}</div>
+                <div className="text-sm text-muted-foreground">Users with Failed Attempts</div>
+              </div>
+            </div>
+            {lockoutStats.topFailedAttemptUsers.length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-sm font-medium text-foreground mb-2">Users with Most Failed Attempts</h4>
+                <div className="space-y-2">
+                  {lockoutStats.topFailedAttemptUsers.slice(0, 3).map((user, index) => (
+                    <div key={index} className="flex items-center justify-between text-sm">
+                      <span className="text-foreground">{user.email}</span>
+                      <span className="text-destructive font-medium">{user.failedAttempts} attempts</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -421,7 +495,7 @@ export default function UsersPage() {
                             <PencilIcon className="h-4 w-4" />
                           </button>
                           
-                          {user.isLocked && (
+                          {user.isLocked ? (
                             <button
                               onClick={() => handleUnlockUser(user.id)}
                               className="text-warning hover:text-warning/80 transition-colors duration-200"
@@ -429,19 +503,27 @@ export default function UsersPage() {
                             >
                               <LockOpenIcon className="h-4 w-4" />
                             </button>
+                          ) : (
+                            <button
+                              onClick={() => handleLockUser(user.id)}
+                              className="text-warning hover:text-warning/80 transition-colors duration-200"
+                              title="Lock user"
+                            >
+                              <LockClosedIcon className="h-4 w-4" />
+                            </button>
                           )}
                           
                           <button
                             onClick={() => handleToggleUserStatus(user.id, user.isActive)}
                             className={`transition-colors duration-200 ${
                               user.isActive 
-                                ? 'text-warning hover:text-warning/80' 
+                                ? 'text-muted-foreground hover:text-foreground' 
                                 : 'text-success hover:text-success/80'
                             }`}
                             title={user.isActive ? 'Deactivate user' : 'Activate user'}
                           >
                             {user.isActive ? (
-                              <LockClosedIcon className="h-4 w-4" />
+                              <XCircleIcon className="h-4 w-4" />
                             ) : (
                               <CheckCircleIcon className="h-4 w-4" />
                             )}
