@@ -17,12 +17,15 @@ import {
   ShieldCheckIcon,
   TrashIcon,
   UsersIcon,
+  ArrowPathIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient, User } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import EmailTemplateModals from '@/components/settings/EmailTemplateModals';
 
 interface PurgeAuditRecord {
   id: string;
@@ -115,6 +118,13 @@ export default function SettingsPage() {
   const [testEmail, setTestEmail] = useState('');
   const [testEmailLoading, setTestEmailLoading] = useState(false);
 
+  // Email templates state
+  const [emailTemplates, setEmailTemplates] = useState<any[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+  const [templatePreview, setTemplatePreview] = useState<any>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
   useEffect(() => {
     fetchPurgeAuditRecords();
     fetchSystemConfig();
@@ -123,6 +133,9 @@ export default function SettingsPage() {
     }
     if (activeTab === 'email') {
       fetchSmtpConfig();
+    }
+    if (activeTab === 'templates') {
+      fetchEmailTemplates();
     }
   }, [activeTab]);
 
@@ -295,6 +308,31 @@ export default function SettingsPage() {
         // No SMTP config exists yet - keep default values
         console.info('No SMTP configuration found - using defaults');
       }
+    }
+  };
+
+  /**
+   * Check SMTP configuration status
+   */
+  const checkSmtpStatus = async (): Promise<{ configured: boolean; message?: string }> => {
+    try {
+      const response = await apiClient.get('/auth/settings/smtp/status');
+      const status = response.data;
+      
+      if (!status.configured) {
+        return { 
+          configured: false, 
+          message: 'SMTP is not configured. Please configure email settings first.' 
+        };
+      }
+      
+      return { configured: true };
+    } catch (error: any) {
+      console.error('Failed to check SMTP status:', error);
+      return { 
+        configured: false, 
+        message: error.response?.data?.message || 'Failed to check SMTP configuration status' 
+      };
     }
   };
 
@@ -544,6 +582,7 @@ export default function SettingsPage() {
   /**
    * Handles sending a test email to verify SMTP configuration.
    * Validates test email address is provided before sending.
+   * Checks SMTP configuration status before attempting to send.
    * Clears test email field after successful send.
    * 
    * @param e - React form event
@@ -560,17 +599,271 @@ export default function SettingsPage() {
     setMessage(null);
 
     try {
+      // First check if SMTP is configured
+      const smtpStatus = await checkSmtpStatus();
+      if (!smtpStatus.configured) {
+        setMessage({ 
+          type: 'error', 
+          text: smtpStatus.message || 'SMTP is not configured. Please configure email settings first.' 
+        });
+        return;
+      }
+
+      // Send test email
       await apiClient.post('/auth/settings/smtp/test', { testEmail });
       setMessage({ type: 'success', text: `Test email sent successfully to ${testEmail}` });
       setTestEmail('');
+    } catch (error: any) {
+      console.error('Test email error:', error);
+      
+      // Extract error message from response
+      let errorMessage = 'Failed to send test email';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setMessage({ 
+        type: 'error', 
+        text: errorMessage
+      });
+    } finally {
+      setTestEmailLoading(false);
+    }
+  };
+
+  /**
+   * Fetches email templates from the API.
+   * Handles authentication errors and sets empty array on failure.
+   * 
+   * @returns Promise that resolves when templates are fetched and state is updated
+   */
+  const fetchEmailTemplates = async () => {
+    try {
+      const response = await apiClient.get('/auth/email-templates');
+      const templates = Array.isArray(response.data) ? response.data : [];
+      setEmailTemplates(templates);
+    } catch (error: any) {
+      console.error('Failed to fetch email templates:', error);
+      
+      if (error.response?.status === 401) {
+        window.location.href = '/login';
+        return;
+      } else if (error.response?.status === 403) {
+        console.warn('User does not have access to email templates');
+      }
+      
+      setEmailTemplates([]);
+    }
+  };
+
+  /**
+   * Handles saving email template changes.
+   * Updates template in database and refreshes template list.
+   * 
+   * @param template - Template data to save
+   * @returns Promise that resolves when template is saved
+   */
+  const handleSaveTemplate = async (template: any) => {
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      await apiClient.put(`/auth/email-templates/${template.type}`, {
+        subject: template.subject,
+        htmlTemplate: template.htmlTemplate,
+        textTemplate: template.textTemplate,
+        description: template.description,
+        variables: template.variables,
+      });
+      
+      setMessage({ type: 'success', text: 'Email template saved successfully' });
+      setShowTemplateEditor(false);
+      setSelectedTemplate(null);
+      await fetchEmailTemplates();
+    } catch (error: any) {
+      setMessage({ 
+        type: 'error', 
+        text: error.response?.data?.message || 'Failed to save email template' 
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Handles resetting template to system default.
+   * Shows confirmation dialog before resetting.
+   * 
+   * @param templateType - Type of template to reset
+   * @returns Promise that resolves when template is reset
+   */
+  const handleResetTemplate = async (templateType: string) => {
+    if (!confirm('Are you sure you want to reset this template to the system default? This will overwrite any custom changes.')) {
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      await apiClient.post(`/auth/email-templates/${templateType}/reset`);
+      setMessage({ type: 'success', text: 'Email template reset to default successfully' });
+      await fetchEmailTemplates();
+    } catch (error: any) {
+      setMessage({ 
+        type: 'error', 
+        text: error.response?.data?.message || 'Failed to reset email template' 
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Handles previewing email template with sample data.
+   * Generates preview with sample data for testing.
+   * 
+   * @param templateType - Type of template to preview
+   * @returns Promise that resolves when preview is generated
+   */
+  const handlePreviewTemplate = async (templateType: string) => {
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      const response = await apiClient.post(`/auth/email-templates/${templateType}/preview`, {
+        sampleData: getSampleDataForTemplate(templateType),
+      });
+      
+      setTemplatePreview(response.data);
+      setShowPreview(true);
+    } catch (error: any) {
+      setMessage({ 
+        type: 'error', 
+        text: error.response?.data?.message || 'Failed to generate template preview' 
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Handles sending test email using template.
+   * Validates test email address and sends template with sample data.
+   * 
+   * @param templateType - Type of template to test
+   * @param testEmailAddress - Email address to send test to
+   * @returns Promise that resolves when test email is sent
+   */
+  const handleTestTemplate = async (templateType: string, testEmailAddress: string) => {
+    if (!testEmailAddress) {
+      setMessage({ type: 'error', text: 'Please enter a test email address' });
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      await apiClient.post(`/auth/email-templates/${templateType}/test`, {
+        testEmail: testEmailAddress,
+        sampleData: getSampleDataForTemplate(templateType),
+      });
+      
+      setMessage({ type: 'success', text: `Test email sent successfully to ${testEmailAddress}` });
     } catch (error: any) {
       setMessage({ 
         type: 'error', 
         text: error.response?.data?.message || 'Failed to send test email' 
       });
     } finally {
-      setTestEmailLoading(false);
+      setLoading(false);
     }
+  };
+
+  /**
+   * Get sample data for template testing based on template type.
+   * 
+   * @param templateType - Type of template
+   * @returns Sample data object for template variables
+   */
+  const getSampleDataForTemplate = (templateType: string): Record<string, any> => {
+    const baseData = {
+      username: 'john.doe',
+      email: 'john.doe@example.com',
+      firstName: 'John',
+      lastName: 'Doe',
+    };
+
+    switch (templateType) {
+      case 'welcome':
+        return { ...baseData, temporaryPassword: 'TempPass123!' };
+      case 'password_reset_request':
+        return { ...baseData, resetUrl: `${window.location.origin}/auth/reset-password?token=sample-token` };
+      case 'account_locked':
+        return { ...baseData, lockoutUntil: new Date(Date.now() + 15 * 60 * 1000).toLocaleString() };
+      case 'backup_code_warning':
+        return { ...baseData, remainingCodes: 2 };
+      case 'role_changed':
+        return { ...baseData, newRole: 'Administrator' };
+      case 'session_revoked':
+        return { 
+          ...baseData, 
+          deviceInfo: 'Chrome on Windows 10', 
+          ipAddress: '192.168.1.100', 
+          revokedAt: new Date().toLocaleString() 
+        };
+      case 'email_verification':
+        return { ...baseData, verificationUrl: `${window.location.origin}/auth/verify-email?token=sample-token` };
+      default:
+        return baseData;
+    }
+  };
+
+  /**
+   * Get display name for template type
+   */
+  const getTemplateDisplayName = (type: string): string => {
+    const names: Record<string, string> = {
+      'welcome': 'Welcome Email',
+      'password_reset_request': 'Password Reset Request',
+      'password_reset_confirmation': 'Password Reset Confirmation',
+      'password_changed': 'Password Changed',
+      'account_locked': 'Account Locked',
+      'mfa_enabled': 'MFA Enabled',
+      'mfa_disabled': 'MFA Disabled',
+      'backup_code_warning': 'Backup Code Warning',
+      'role_changed': 'Role Changed',
+      'session_revoked': 'Session Revoked',
+      'email_verification': 'Email Verification',
+      'backup_codes_regenerated': 'Backup Codes Regenerated',
+    };
+    
+    return names[type] || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  /**
+   * Get description for template type
+   */
+  const getTemplateDescription = (type: string): string => {
+    const descriptions: Record<string, string> = {
+      'welcome': 'Sent to new users when their account is created',
+      'password_reset_request': 'Sent when a user requests a password reset',
+      'password_reset_confirmation': 'Sent after a successful password reset',
+      'password_changed': 'Sent when a user changes their password',
+      'account_locked': 'Sent when a user account is locked due to failed login attempts',
+      'mfa_enabled': 'Sent when MFA is enabled on a user account',
+      'mfa_disabled': 'Sent when MFA is disabled on a user account',
+      'backup_code_warning': 'Sent when a user has few backup codes remaining',
+      'role_changed': 'Sent when a user\'s role is changed',
+      'session_revoked': 'Sent when a user session is revoked',
+      'email_verification': 'Sent for email address verification',
+      'backup_codes_regenerated': 'Sent when backup codes are regenerated',
+    };
+    
+    return descriptions[type] || 'Email template';
   };
 
   const tabs = [
@@ -578,6 +871,7 @@ export default function SettingsPage() {
     { id: 'system', name: 'System Config', icon: Cog6ToothIcon },
     { id: 'users', name: 'Users & Roles', icon: UsersIcon },
     { id: 'email', name: 'Email Configuration', icon: EnvelopeIcon },
+    { id: 'templates', name: 'Email Templates', icon: EnvelopeIcon },
     { id: 'security', name: 'Security', icon: ShieldCheckIcon },
   ];
 
@@ -1286,6 +1580,94 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {activeTab === 'templates' && (
+            <div className="card-content">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-medium text-gray-900">Email Templates</h3>
+                <div className="text-sm text-gray-500">
+                  Customize email templates sent by the system
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {/* Template List */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {emailTemplates.map((template) => (
+                    <div key={template.type} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-900">
+                            {getTemplateDisplayName(template.type)}
+                          </h4>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {template.description || getTemplateDescription(template.type)}
+                          </p>
+                        </div>
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                          template.isSystem 
+                            ? 'bg-blue-100 text-blue-800' 
+                            : 'bg-green-100 text-green-800'
+                        }`}>
+                          {template.isSystem ? 'System' : 'Custom'}
+                        </span>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {template.variables?.map((variable: string) => (
+                          <span key={variable} className="inline-flex px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">
+                            {`{{${variable}}}`}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex justify-between items-center">
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => handlePreviewTemplate(template.type)}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            <EyeIcon className="h-4 w-4" />
+                          </button>
+                          {canModifySettings && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setSelectedTemplate(template);
+                                  setShowTemplateEditor(true);
+                                }}
+                                className="text-xs text-gray-600 hover:text-gray-800"
+                              >
+                                <PencilIcon className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleResetTemplate(template.type)}
+                                className="text-xs text-yellow-600 hover:text-yellow-800"
+                                title="Reset to default"
+                              >
+                                <ArrowPathIcon className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {formatDate(template.updatedAt)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {emailTemplates.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    <EnvelopeIcon className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+                    <p>No email templates found</p>
+                    <p className="text-sm">Templates will be loaded automatically when the system starts</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'security' && (
             <div className="card-content">
               <h3 className="text-lg font-medium text-gray-900 mb-6">Security Settings</h3>
@@ -1427,6 +1809,27 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* Email Template Modals */}
+      <EmailTemplateModals
+        showTemplateEditor={showTemplateEditor}
+        selectedTemplate={selectedTemplate}
+        loading={loading}
+        onCloseEditor={() => {
+          setShowTemplateEditor(false);
+          setSelectedTemplate(null);
+        }}
+        onSaveTemplate={handleSaveTemplate}
+        onUpdateTemplate={setSelectedTemplate}
+        onPreviewTemplate={handlePreviewTemplate}
+        onTestTemplate={handleTestTemplate}
+        showPreview={showPreview}
+        templatePreview={templatePreview}
+        onClosePreview={() => {
+          setShowPreview(false);
+          setTemplatePreview(null);
+        }}
+      />
     </DashboardLayout>
   );
 }

@@ -204,7 +204,7 @@ interface ApiClientConfig {
 }
 
 const DEFAULT_CONFIG: Required<ApiClientConfig> = {
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1',
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/vv1',
   timeout: 10000,
   enableLogging: process.env.NODE_ENV === 'development',
   maxRetries: 3,
@@ -1217,6 +1217,85 @@ class ApiClient {
     topFailedAttemptUsers: Array<{ email: string; username: string; failedAttempts: number }>;
   }> {
     const response = await this.client.get('/users/lockout-stats');
+    return this.extractResponseData(response);
+  }
+
+  // Email Template endpoints
+  /**
+   * Get all email templates
+   * @returns Array of email templates
+   */
+  async getEmailTemplates(): Promise<any[]> {
+    const response = await this.client.get('/auth/email-templates');
+    return this.extractResponseData(response);
+  }
+
+  /**
+   * Get email template by type
+   * @param type - Email template type
+   * @returns Email template data
+   */
+  async getEmailTemplate(type: string): Promise<any> {
+    const response = await this.client.get(`/auth/email-templates/${type}`);
+    return this.extractResponseData(response);
+  }
+
+  /**
+   * Create or update email template
+   * @param type - Email template type
+   * @param templateData - Template data to save
+   * @returns Updated template data
+   */
+  async saveEmailTemplate(type: string, templateData: any): Promise<any> {
+    const response = await this.client.put(`/auth/email-templates/${type}`, templateData);
+    return this.extractResponseData(response);
+  }
+
+  /**
+   * Delete custom email template (revert to system default)
+   * @param type - Email template type
+   */
+  async deleteEmailTemplate(type: string): Promise<void> {
+    await this.client.delete(`/auth/email-templates/${type}`);
+  }
+
+  /**
+   * Reset email template to system default
+   * @param type - Email template type
+   * @returns Default template data
+   */
+  async resetEmailTemplate(type: string): Promise<any> {
+    const response = await this.client.post(`/auth/email-templates/${type}/reset`);
+    return this.extractResponseData(response);
+  }
+
+  /**
+   * Preview email template with sample data
+   * @param type - Email template type
+   * @param sampleData - Sample data for template variables
+   * @returns Rendered template preview
+   */
+  async previewEmailTemplate(type: string, sampleData?: any): Promise<any> {
+    const response = await this.client.post(`/auth/email-templates/${type}/preview`, { sampleData });
+    return this.extractResponseData(response);
+  }
+
+  /**
+   * Send test email using template
+   * @param type - Email template type
+   * @param testEmail - Email address to send test to
+   * @param sampleData - Sample data for template variables
+   */
+  async sendTestEmail(type: string, testEmail: string, sampleData?: any): Promise<void> {
+    await this.client.post(`/auth/email-templates/${type}/test`, { testEmail, sampleData });
+  }
+
+  /**
+   * Get available email template types
+   * @returns Array of available template types with metadata
+   */
+  async getEmailTemplateTypes(): Promise<any[]> {
+    const response = await this.client.get('/auth/email-templates/types/available');
     return this.extractResponseData(response);
   }
 }
